@@ -1,0 +1,6 @@
+{
+  "name": "Combo Router & AI Chat",
+  "description": "Hybrid AI Combo Router Proxy and AI Chat Client with Model Routing, Adapters, and Bilingual Interface",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
