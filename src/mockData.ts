@@ -7,7 +7,7 @@ export const initialServices: AIService[] = [
     preset: 'OpenAI',
     baseUrl: 'https://api.openai.com/v1',
     apiKey: 'sk-proj-99887766554433221100',
-    corsProxy: 'https://proxy.worker.dev/{url}',
+    corsProxy: 'https://rough-dew-b6af.kokomoujj.workers.dev/?url={url}',
     status: 'online',
     models: [
       { id: 'gpt-4o', name: 'gpt-4o', contextWindow: '128k', isHealthy: true, latencyMs: 310 },
@@ -226,7 +226,7 @@ export const defaultSettings: AppSettings = {
   autoTitle: true,
   ttsEnabled: true,
   defaultContextLimit: 6,
-  defaultCorsProxy: 'https://cors-proxy.my-worker.workers.dev/{url}',
+  defaultCorsProxy: 'https://rough-dew-b6af.kokomoujj.workers.dev/?url={url}',
   workerSecurityToken: 'sec_tok_9918231aa7',
   hasKeyLock: false,
   gistToken: '',
