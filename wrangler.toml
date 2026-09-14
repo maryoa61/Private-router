@@ -1,0 +1,4 @@
+name = "rough-dew-b6af"
+type = "javascript"
+main = "worker.js"
+compatibility_date = "2024-01-01"
