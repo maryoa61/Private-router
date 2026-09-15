@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Shield, Lock } from 'lucide-react';
+import { ENV_ADMIN_TOKEN } from '../utils/env';
 
 interface Props {
   onSuccess: () => void;
@@ -12,11 +13,15 @@ export const AdminLogin: React.FC<Props> = ({ onSuccess, onCancel }) => {
 
   const handle = (e: React.FormEvent) => {
     e.preventDefault();
-    // Admin token: from env or default
-    const expected = (import.meta as any).env?.VITE_ADMIN_TOKEN || 'sec_tok_9918231aa7';
-    // also allow token stored in localStorage by admin
-    const stored = localStorage.getItem('admin_token') || expected;
-    if (pwd === stored || pwd === expected) {
+    // Admin token comes from the build environment (VITE_ADMIN_TOKEN), never hardcoded.
+    // NOTE: VITE_* values are visible in the public bundle — this gates the UI,
+    // it is not a server-side authorisation boundary.
+    const expected = ENV_ADMIN_TOKEN;
+    if (!expected) {
+      setErr('توکن مدیریت تنظیم نشده است. مقدار VITE_ADMIN_TOKEN را در فایل .env قرار دهید.');
+      return;
+    }
+    if (pwd === expected) {
       localStorage.setItem('admin_auth', '1');
       onSuccess();
     } else {

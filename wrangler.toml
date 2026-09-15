@@ -1,4 +1,15 @@
-name = "rough-dew-b6af"
-type = "javascript"
+# نام واقعی ورکر در CI از secret تزریق می‌شود:
+#   wrangler deploy --name "$CF_WORKER_NAME"
+# مقدار زیر فقط یک پیش‌فرض عمومی برای توسعه‌ی محلی است.
+name = "private-router-proxy"
 main = "worker.js"
 compatibility_date = "2024-01-01"
+
+[vars]
+# لیست کاماجدا از Originهای مجاز. در CI با --var بازنویسی می‌شود.
+ALLOWED_ORIGINS = ""
+# لیست کاماجدا از هاست‌های مقصد مجاز. خالی = همه.
+ALLOW_HOSTS = ""
+
+# PROXY_TOKEN یک secret است و اینجا نوشته نمی‌شود:
+#   wrangler secret put PROXY_TOKEN

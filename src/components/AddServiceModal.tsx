@@ -7,6 +7,10 @@ interface AddServiceModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (service: AIService) => void;
+  /** Default CORS proxy from app settings (VITE_CORS_PROXY_URL / Settings). */
+  defaultCorsProxy?: string;
+  /** Worker security token from app settings, sent as X-Proxy-Token. */
+  proxyToken?: string;
 }
 
 const PRESET_OPTIONS = [
@@ -19,12 +23,12 @@ const PRESET_OPTIONS = [
   { id: 'Custom', name: 'آدرس دستی / سرویس سفارشی (Custom)', url: '', defaultModel: 'default-model' },
 ];
 
-export const AddServiceModal: React.FC<AddServiceModalProps> = ({ isOpen, onClose, onSave }) => {
-  const [selectedPreset, setSelectedPreset] = useState('OpenAI');
-  const [name, setName] = useState('OpenAI Service');
-  const [baseUrl, setBaseUrl] = useState('https://api.openai.com/v1');
+export const AddServiceModal: React.FC<AddServiceModalProps> = ({ isOpen, onClose, onSave, defaultCorsProxy = '', proxyToken = '' }) => {
+  const [selectedPreset, setSelectedPreset] = useState('Custom');
+  const [name, setName] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
-  const [corsProxy, setCorsProxy] = useState('');
+  const [corsProxy, setCorsProxy] = useState(defaultCorsProxy);
   const [showKey, setShowKey] = useState(false);
   const [testing, setTesting] = useState(false);
   const [fetchedModels, setFetchedModels] = useState<ServiceModel[]>([]);
@@ -54,7 +58,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({ isOpen, onClos
     setTesting(true);
     setTestResult(null);
 
-    const res = await testAndFetchServiceModels(baseUrl, apiKey, corsProxy);
+    const res = await testAndFetchServiceModels(baseUrl, apiKey, corsProxy, proxyToken);
     setTesting(false);
     setTestResult({
       success: res.success,
@@ -75,7 +79,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({ isOpen, onClos
     // If models haven't been fetched yet, fetch or prepare standard fallback model
     if (modelsToSave.length === 0) {
       if (apiKey.trim()) {
-        const res = await testAndFetchServiceModels(baseUrl, apiKey, corsProxy);
+        const res = await testAndFetchServiceModels(baseUrl, apiKey, corsProxy, proxyToken);
         if (res.success && res.models.length > 0) {
           modelsToSave = res.models;
           serviceStatus = 'online';

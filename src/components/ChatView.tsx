@@ -306,11 +306,21 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 className={`flex flex-col gap-2 rounded-2xl p-4 text-xs leading-relaxed ${
                   isUser
                     ? 'bg-blue-600 text-white rounded-tr-none'
+                    : msg.isError
+                    ? 'bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-tl-none'
                     : 'bg-[#101726] border border-[#243147] text-[#e2e8f0] rounded-tl-none'
                 }`}
               >
                 {/* Regular content */}
-                <div className="whitespace-pre-wrap">{msg.content}</div>
+                {msg.isPending ? (
+                  <div className="flex items-center gap-1.5 py-0.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#64748b] animate-bounce [animation-delay:-0.3s]"></span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#64748b] animate-bounce [animation-delay:-0.15s]"></span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#64748b] animate-bounce"></span>
+                  </div>
+                ) : (
+                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                )}
 
                 {/* Live Web Sources Indicator if present */}
                 {msg.webSources && msg.webSources.length > 0 && (

@@ -1,4 +1,5 @@
 import { AIService, ComboItem, AdapterConfig, Conversation, PromptTemplate, AppSettings } from './types';
+import { ENV_CORS_PROXY, ENV_WORKER_TOKEN } from './utils/env';
 
 export const initialServices: AIService[] = [];
 export const initialCombos: ComboItem[] = [];
@@ -44,8 +45,8 @@ export const defaultSettings: AppSettings = {
   autoTitle: true,
   ttsEnabled: true,
   defaultContextLimit: 6,
-  defaultCorsProxy: 'https://rough-dew-b6af.kokomoujj.workers.dev/?url={url}',
-  workerSecurityToken: 'sec_tok_9918231aa7',
+  defaultCorsProxy: ENV_CORS_PROXY,
+  workerSecurityToken: ENV_WORKER_TOKEN,
   hasKeyLock: false,
   gistToken: '',
   gistId: '',

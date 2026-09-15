@@ -19,13 +19,10 @@ export const CreateComboModal: React.FC<CreateComboModalProps> = ({
   const [strategy, setStrategy] = useState<RoutingStrategy>('fallback');
   const [selectedModels, setSelectedModels] = useState<
     { serviceId: string; serviceName: string; modelName: string; priority: number; weight?: number; isHealthy: boolean }[]
-  >([
-    { serviceId: 'srv-1', serviceName: 'OpenAI', modelName: 'gpt-4o', priority: 1, isHealthy: true },
-    { serviceId: 'srv-2', serviceName: 'Anthropic', modelName: 'claude-3-5-sonnet', priority: 2, isHealthy: true },
-  ]);
+  >([]);
 
   const [candidateServiceId, setCandidateServiceId] = useState(services[0]?.id || '');
-  const [candidateModelName, setCandidateModelName] = useState('deepseek-chat');
+  const [candidateModelName, setCandidateModelName] = useState('');
 
   if (!isOpen) return null;
 

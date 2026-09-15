@@ -182,8 +182,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span>گفتگوها ({conversations.length})</span>
             </span>
             <button
-              onClick={() => onNewConversation('combo-1', 'combo', 'Ultra-Smart General (Tier 1)')}
-              className="text-[11px] font-medium px-2 py-0.5 rounded-lg border border-[#243147] bg-[#162032] text-[#cbd5e1] hover:text-white transition-colors flex items-center gap-1"
+              onClick={() => {
+                const first = services[0]
+                  ? { id: services[0].id, type: 'service' as const, name: services[0].name }
+                  : combos[0]
+                  ? { id: combos[0].id, type: 'combo' as const, name: combos[0].name }
+                  : null;
+                if (first) onNewConversation(first.id, first.type, first.name);
+              }}
+              disabled={services.length === 0 && combos.length === 0}
+              title={services.length === 0 && combos.length === 0 ? 'ابتدا یک سرویس یا Combo اضافه کنید' : 'گفتگوی جدید با اولین سرویس/Combo موجود'}
+              className="text-[11px] font-medium px-2 py-0.5 rounded-lg border border-[#243147] bg-[#162032] text-[#cbd5e1] hover:text-white transition-colors flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Plus className="w-3 h-3" />
               <span>گفتگوی جدید</span>
@@ -248,7 +257,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <Activity className="w-3.5 h-3.5 text-emerald-400" />
           <span>پروکسی و روتینگ محلی فعال</span>
         </div>
-        <span className="font-mono text-[10px]">v1.0-mock</span>
+        <span className="font-mono text-[10px]">v1.1</span>
       </div>
     </aside>
   );

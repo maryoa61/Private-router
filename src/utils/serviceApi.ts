@@ -18,6 +18,17 @@ export function buildProxyUrl(targetUrl: string, corsProxy?: string): string {
 }
 
 /**
+ * Builds the headers needed to authenticate against the CORS proxy Worker.
+ * The token is only attached when a proxy is actually in use, so it is never
+ * leaked to the upstream AI provider.
+ */
+export function proxyAuthHeaders(corsProxy?: string, proxyToken?: string): Record<string, string> {
+  if (!corsProxy || !corsProxy.trim()) return {};
+  if (!proxyToken || !proxyToken.trim()) return {};
+  return { 'X-Proxy-Token': proxyToken.trim() };
+}
+
+/**
  * Normalizes the base URL, stripping trailing slashes.
  */
 export function normalizeBaseUrl(baseUrl: string): string {
@@ -30,7 +41,8 @@ export function normalizeBaseUrl(baseUrl: string): string {
 export async function testAndFetchServiceModels(
   baseUrl: string,
   apiKey: string,
-  corsProxy?: string
+  corsProxy?: string,
+  proxyToken?: string
 ): Promise<{
   success: boolean;
   latencyMs: number;
@@ -51,6 +63,7 @@ export async function testAndFetchServiceModels(
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      ...proxyAuthHeaders(corsProxy, proxyToken),
     };
 
     if (apiKey && apiKey.trim()) {
@@ -131,6 +144,8 @@ export async function testAndFetchServiceModels(
       errMsg = 'درخواست به دلیل انقضای زمان (Timeout 12s) متوقف شد.';
     } else if (err.message && err.message.includes('Failed to fetch')) {
       errMsg = 'خطای ارتباط شبکه یا محدودیت CORS. در صورت نیاز از CORS Proxy Worker استفاده کنید.';
+    } else if (err?.status === 401) {
+      errMsg = 'توکن امنیتی Worker نامعتبر است (Settings → امنیت).';
     }
 
     return {

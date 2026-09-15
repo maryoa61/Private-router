@@ -15,7 +15,7 @@ export interface AIService {
   baseUrl: string;
   apiKey: string;
   corsProxy?: string;
-  status: 'online' | 'offline' | 'checking';
+  status: 'online' | 'offline' | 'degraded' | 'checking';
   models: ServiceModel[];
 }
 
@@ -62,6 +62,8 @@ export interface ChatMessage {
   };
   hasWebSearch?: boolean;
   webSources?: { title: string; url: string }[];
+  isPending?: boolean;
+  isError?: boolean;
 }
 
 export interface Conversation {

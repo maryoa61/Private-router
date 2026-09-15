@@ -21,9 +21,17 @@ jobs:
           node-version: 20
 
       - name: Install
-        run: npm install
+        run: npm ci
 
+      # ⚠️ هر VITE_* در باندل عمومی قابل دیدن است.
+      # این‌ها فقط از ریپو بیرون نگه داشته می‌شوند، محرمانه نمی‌مانند.
+      # VITE_WORKER_PROXY_TOKEN را فقط برای دیپلوی خصوصی ست کن؛
+      # برای سایت عمومی خالی بگذار تا هر کاربر توکن خودش را در Settings وارد کند.
       - name: Build
+        env:
+          VITE_CORS_PROXY_URL: ${{ secrets.VITE_CORS_PROXY_URL }}
+          VITE_ADMIN_TOKEN: ${{ secrets.VITE_ADMIN_TOKEN }}
+          VITE_WORKER_PROXY_TOKEN: ${{ secrets.VITE_WORKER_PROXY_TOKEN }}
         run: npm run build
 
       - name: Deploy to Cloudflare Pages
@@ -31,14 +39,29 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: private-router
+          projectName: ${{ secrets.CLOUDFLARE_PAGES_PROJECT }}
           directory: dist
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Deploy Worker (CORS Proxy)
+      # نام ورکر و Originهای مجاز از secrets می‌آیند، نه از فایل کامیت‌شده.
+      - name: Deploy Worker (CORS proxy)
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --config wrangler.toml
-        continue-on-error: true
+          command: >-
+            deploy --name ${{ secrets.CF_WORKER_NAME }}
+            --var ALLOWED_ORIGINS:${{ secrets.ALLOWED_ORIGINS }}
+            --var ALLOW_HOSTS:${{ secrets.ALLOW_HOSTS }}
+
+      # PROXY_TOKEN به‌عنوان Worker secret ست می‌شود و هرگز وارد باندل نمی‌شود.
+      - name: Sync Worker secret (PROXY_TOKEN)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: secret put PROXY_TOKEN --name ${{ secrets.CF_WORKER_NAME }}
+          secrets: |
+            PROXY_TOKEN
+        env:
+          PROXY_TOKEN: ${{ secrets.PROXY_TOKEN }}

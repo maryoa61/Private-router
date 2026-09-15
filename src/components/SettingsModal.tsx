@@ -15,9 +15,15 @@ import {
   KeyRound, 
   CheckCircle2,
   ShieldCheck,
-  AlertTriangle
+  AlertTriangle,
+  Loader2
 } from 'lucide-react';
-import { AppSettings } from '../types';
+import { AIService, AppSettings, ComboItem, Conversation, PromptTemplate } from '../types';
+import { enableVault, disableVault, encryptWithSession } from '../utils/vault';
+import { decryptJSON, deriveKeyForBlob } from '../utils/crypto';
+import { pushToGist, pullFromGist, verifyGistToken, GistDocument, SyncPayload } from '../utils/gistApi';
+
+type VaultSession = { key: CryptoKey; salt: Uint8Array } | null;
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -25,6 +31,19 @@ interface SettingsModalProps {
   settings: AppSettings;
   onUpdateSettings: (newSettings: AppSettings) => void;
   onWipeData: () => void;
+  services: AIService[];
+  combos: ComboItem[];
+  conversations: Conversation[];
+  promptTemplates: PromptTemplate[];
+  vaultSession: VaultSession;
+  onVaultChange: (session: VaultSession) => void;
+  onRestore: (data: {
+    settings?: AppSettings;
+    services?: AIService[];
+    combos?: ComboItem[];
+    conversations?: Conversation[];
+    promptTemplates?: PromptTemplate[];
+  }) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -33,11 +52,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   settings,
   onUpdateSettings,
   onWipeData,
+  services,
+  combos,
+  conversations,
+  promptTemplates,
+  vaultSession,
+  onVaultChange,
+  onRestore,
 }) => {
   const [activeTab, setActiveTab] = useState<'general' | 'security' | 'sync' | 'backup'>('general');
   const [current, setCurrent] = useState<AppSettings>(settings);
   const [passphrase, setPassphrase] = useState('');
+  const [passphraseConfirm, setPassphraseConfirm] = useState('');
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState<null | 'lock' | 'push' | 'pull' | 'verify'>(null);
+  const [unlockPassphrase, setUnlockPassphrase] = useState('');
+  const [pendingEncrypted, setPendingEncrypted] = useState<any>(null);
 
   if (!isOpen) return null;
 
@@ -46,22 +76,157 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setTimeout(() => setActionNotice(null), 3000);
   };
 
-  const handleToggleLock = () => {
-    if (!current.hasKeyLock) {
-      if (!passphrase.trim()) {
-        showFeedback('لطفاً ابتدا یک رمز عبور برای قفل امنیتی وارد نمایید.');
-        return;
-      }
+  const handleToggleLock = async () => {
+    if (current.hasKeyLock) {
+      // Disabling: we already hold the derived key, so just write plaintext back.
+      disableVault(services);
+      onVaultChange(null);
+      const updated = { ...current, hasKeyLock: false };
+      setCurrent(updated);
+      onUpdateSettings(updated);
+      showFeedback('قفل امنیتی غیرفعال شد. کلیدها دوباره به‌صورت متن ساده ذخیره می‌شوند.');
+      return;
+    }
+
+    if (!passphrase.trim()) {
+      showFeedback('لطفاً ابتدا یک رمز عبور برای قفل امنیتی وارد نمایید.');
+      return;
+    }
+    if (passphrase.length < 8) {
+      showFeedback('رمز عبور باید حداقل ۸ کاراکتر باشد.');
+      return;
+    }
+    if (passphrase !== passphraseConfirm) {
+      showFeedback('تکرار رمز عبور مطابقت ندارد.');
+      return;
+    }
+
+    setBusy('lock');
+    try {
+      const session = await enableVault(passphrase, services);
+      onVaultChange(session);
       const updated = { ...current, hasKeyLock: true };
       setCurrent(updated);
       onUpdateSettings(updated);
       setPassphrase('');
-      showFeedback('قفل امنیتی AES-GCM با موفقیت فعال شد.');
-    } else {
-      const updated = { ...current, hasKeyLock: false };
+      setPassphraseConfirm('');
+      showFeedback('قفل AES-GCM فعال شد. رمز را جایی امن نگه دار — قابل بازیابی نیست.');
+    } catch (e: any) {
+      showFeedback(e?.message || 'فعال‌سازی قفل ناموفق بود.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // ---------- Gist sync ----------
+
+  const buildPayload = (): SyncPayload => {
+    const { gistToken: _omit, ...safeSettings } = current;
+    return {
+      version: 2,
+      exportedAt: new Date().toISOString(),
+      settings: safeSettings,
+      services,
+      combos,
+      conversations,
+      promptTemplates,
+    };
+  };
+
+  const handleVerifyToken = async () => {
+    setBusy('verify');
+    try {
+      const { login, scopes } = await verifyGistToken(current.gistToken);
+      showFeedback(`اتصال برقرار شد: ${login}${scopes ? ` (scopes: ${scopes})` : ''}`);
+    } catch (e: any) {
+      showFeedback(e?.message || 'بررسی توکن ناموفق بود.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handlePush = async () => {
+    setBusy('push');
+    try {
+      const payload = buildPayload();
+      // A "secret" gist is only unlisted, not private. Encrypt when the vault is on.
+      const doc: GistDocument = vaultSession
+        ? {
+            encrypted: true,
+            blob: await encryptWithSession(payload, vaultSession),
+            exportedAt: payload.exportedAt,
+          }
+        : { encrypted: false, payload };
+
+      const { gistId } = await pushToGist(current.gistToken, current.gistId, doc);
+      const updated = { ...current, gistId };
       setCurrent(updated);
       onUpdateSettings(updated);
-      showFeedback('قفل امنیتی غیرفعال شد.');
+      showFeedback(
+        vaultSession
+          ? `ارسال شد (رمزگذاری‌شده). شناسه Gist: ${gistId}`
+          : `ارسال شد به‌صورت متن ساده. شناسه Gist: ${gistId}`
+      );
+    } catch (e: any) {
+      showFeedback(e?.message || 'ارسال به Gist ناموفق بود.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const applyPayload = (payload: SyncPayload) => {
+    onRestore({
+      settings: { ...(payload.settings as AppSettings), gistToken: current.gistToken },
+      services: payload.services,
+      combos: payload.combos,
+      conversations: payload.conversations,
+      promptTemplates: payload.promptTemplates,
+    });
+  };
+
+  const handlePull = async () => {
+    setBusy('pull');
+    try {
+      const doc = await pullFromGist(current.gistToken, current.gistId);
+      if (doc.encrypted === false) {
+        applyPayload(doc.payload);
+        showFeedback('داده‌ها از Gist بازیابی شد.');
+        return;
+      }
+      if (vaultSession) {
+        // Same passphrase as this session — try the in-memory key first.
+        try {
+          const payload = await decryptJSON<SyncPayload>(doc.blob, vaultSession.key);
+          applyPayload(payload);
+          showFeedback('داده‌های رمزگذاری‌شده از Gist رمزگشایی و بازیابی شد.');
+          return;
+        } catch {
+          /* different passphrase — fall through and ask */
+        }
+      }
+      setPendingEncrypted(doc.blob);
+      showFeedback('این بکاپ رمزگذاری‌شده است. رمز عبور آن را وارد کن.');
+    } catch (e: any) {
+      showFeedback(e?.message || 'دریافت از Gist ناموفق بود.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleDecryptPending = async () => {
+    if (!pendingEncrypted || !unlockPassphrase) return;
+    setBusy('pull');
+    try {
+      const key = await deriveKeyForBlob(unlockPassphrase, pendingEncrypted);
+      const payload = await decryptJSON<SyncPayload>(pendingEncrypted, key);
+      applyPayload(payload);
+      setPendingEncrypted(null);
+      setUnlockPassphrase('');
+      showFeedback('رمزگشایی و بازیابی با موفقیت انجام شد.');
+    } catch (e: any) {
+      showFeedback(e?.message || 'رمزگشایی ناموفق بود.');
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -295,7 +460,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <ShieldCheck className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
                 <div className="text-xs leading-relaxed text-[#cbd5e1]">
                   <p className="font-bold text-white mb-1">رمزگذاری سرتاسری کلیدها (AES-GCM)</p>
-                  با فعال کردن این ویژگی، تمام API Keyهای ذخیره‌شده در حافظه با رمز عبور شما رمزگذاری می‌شوند و در ابتدای هر بار باز کردن برنامه، پسورد درخواست می‌شود.
+                  کلیدهای API با AES-GCM ۲۵۶ بیتی رمزگذاری و در localStorage ذخیره می‌شوند.
+                  کلید رمزگذاری با PBKDF2-SHA256 (۲۵۰٬۰۰۰ تکرار) از رمز عبور شما مشتق می‌شود
+                  و فقط تا زمان بستن تب در حافظه می‌ماند. با هر بار باز کردن برنامه رمز درخواست می‌شود.
                 </div>
               </div>
 
@@ -317,7 +484,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 {!current.hasKeyLock ? (
                   <div className="flex flex-col gap-2 mt-2">
-                    <label className="text-[11px] text-[#94a3b8]">تعریف رمز عبور برای قفل امنیتی:</label>
+                    <label className="text-[11px] text-[#94a3b8]">تعریف رمز عبور برای قفل امنیتی (حداقل ۸ کاراکتر):</label>
                     <input
                       type="password"
                       value={passphrase}
@@ -325,13 +492,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       placeholder="رمز عبور قوی وارد کنید..."
                       className="w-full text-xs rounded-xl border border-[#243147] bg-[#0c121e] px-3 py-2 text-white outline-none"
                     />
+                    <input
+                      type="password"
+                      value={passphraseConfirm}
+                      onChange={(e) => setPassphraseConfirm(e.target.value)}
+                      placeholder="تکرار رمز عبور..."
+                      className="w-full text-xs rounded-xl border border-[#243147] bg-[#0c121e] px-3 py-2 text-white outline-none"
+                    />
+                    <p className="text-[11px] text-amber-400 flex items-start gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                      <span>این رمز هیچ‌جا ذخیره نمی‌شود و بازیابی ندارد. اگر فراموشش کنی، کلیدهای API غیرقابل‌بازگشت خواهند بود.</span>
+                    </p>
                     <button
                       type="button"
                       onClick={handleToggleLock}
-                      className="mt-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5"
+                      disabled={busy === 'lock'}
+                      className="mt-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-1.5"
                     >
-                      <Lock className="w-3.5 h-3.5" />
-                      <span>فعال‌سازی قفل امنیتی AES-GCM</span>
+                      {busy === 'lock' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
+                      <span>{busy === 'lock' ? 'در حال رمزگذاری...' : 'فعال‌سازی قفل امنیتی AES-GCM'}</span>
                     </button>
                   </div>
                 ) : (
@@ -384,23 +563,83 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 />
               </div>
 
-              <div className="flex items-center gap-3 mt-2">
+              <div className="flex flex-col gap-3 mt-1">
                 <button
                   type="button"
-                  onClick={() => showFeedback('همگام‌سازی و ارسال داده‌ها به GitHub Gist (Push) با موفقیت شبیه‌سازی شد.')}
-                  className="flex-1 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5"
+                  onClick={handleVerifyToken}
+                  disabled={busy !== null || !current.gistToken}
+                  className="py-2 px-3 rounded-xl border border-[#243147] bg-[#162032] hover:bg-[#1f2b42] disabled:opacity-40 text-white text-xs font-medium flex items-center justify-center gap-1.5"
                 >
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>ارسال به Gist (Push)</span>
+                  {busy === 'verify' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                  <span>بررسی اعتبار توکن</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => showFeedback('داده‌های تنظیمات و سرویس‌ها از GitHub Gist دریافت شد (Pull).')}
-                  className="flex-1 py-2 px-3 rounded-xl border border-[#243147] bg-[#162032] hover:bg-[#1f2b42] text-white text-xs font-semibold flex items-center justify-center gap-1.5"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>دریافت از Gist (Pull)</span>
-                </button>
+
+                <div className={`p-3 rounded-xl border text-[11px] leading-relaxed flex items-start gap-2 ${
+                  vaultSession
+                    ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-300'
+                    : 'border-amber-500/20 bg-amber-500/5 text-amber-300'
+                }`}>
+                  {vaultSession ? <Lock className="w-3.5 h-3.5 shrink-0 mt-0.5" /> : <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />}
+                  <span>
+                    {vaultSession
+                      ? 'قفل امنیتی فعال است: محتوای بکاپ قبل از ارسال با AES-GCM رمزگذاری می‌شود.'
+                      : 'قفل امنیتی غیرفعال است. Gist مخفی فقط «فهرست‌نشده» است، نه خصوصی — هرکس URL را داشته باشد می‌تواند کلیدهای API شما را بخواند. برای ارسال امن، اول قفل را از تب امنیت فعال کن.'}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handlePush}
+                    disabled={busy !== null || !current.gistToken}
+                    className="flex-1 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs font-semibold flex items-center justify-center gap-1.5"
+                  >
+                    {busy === 'push' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                    <span>ارسال به Gist (Push)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handlePull}
+                    disabled={busy !== null || !current.gistToken || !current.gistId}
+                    className="flex-1 py-2 px-3 rounded-xl border border-[#243147] bg-[#162032] hover:bg-[#1f2b42] disabled:opacity-40 text-white text-xs font-semibold flex items-center justify-center gap-1.5"
+                  >
+                    {busy === 'pull' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                    <span>دریافت از Gist (Pull)</span>
+                  </button>
+                </div>
+
+                {pendingEncrypted && (
+                  <div className="p-3 rounded-xl border border-[#243147] bg-[#141c2c] flex flex-col gap-2">
+                    <label className="text-[11px] text-[#94a3b8]">
+                      این بکاپ رمزگذاری‌شده است. رمز عبوری که موقع ساختنش استفاده شده را وارد کن:
+                    </label>
+                    <input
+                      type="password"
+                      value={unlockPassphrase}
+                      onChange={(e) => setUnlockPassphrase(e.target.value)}
+                      placeholder="رمز عبور بکاپ..."
+                      className="w-full text-xs rounded-xl border border-[#243147] bg-[#0c121e] px-3 py-2 text-white outline-none"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => { setPendingEncrypted(null); setUnlockPassphrase(''); }}
+                        className="px-3 py-2 text-[11px] text-[#94a3b8] hover:text-white"
+                      >
+                        انصراف
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDecryptPending}
+                        disabled={busy !== null || !unlockPassphrase}
+                        className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-[11px] font-semibold flex items-center justify-center gap-1.5"
+                      >
+                        <KeyRound className="w-3.5 h-3.5" />
+                        <span>رمزگشایی و بازیابی</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
