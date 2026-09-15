@@ -21,7 +21,7 @@ jobs:
           node-version: 20
 
       - name: Install
-        run: npm ci
+        run: npm install
 
       # ⚠️ هر VITE_* در باندل عمومی قابل دیدن است.
       # این‌ها فقط از ریپو بیرون نگه داشته می‌شوند، محرمانه نمی‌مانند.
