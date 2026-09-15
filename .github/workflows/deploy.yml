@@ -50,7 +50,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: >-
-            deploy --name ${{ secrets.CF_WORKER_NAME || "pr-proxy-9f2c" }}
+            deploy --name pr-proxy-9f2c
             --var ALLOWED_ORIGINS:${{ secrets.ALLOWED_ORIGINS }}
             --var ALLOW_HOSTS:${{ secrets.ALLOW_HOSTS }}
 
@@ -60,7 +60,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: secret put PROXY_TOKEN --name ${{ secrets.CF_WORKER_NAME || "pr-proxy-9f2c" }}
+          command: secret put PROXY_TOKEN --name pr-proxy-9f2c
           secrets: |
             PROXY_TOKEN
         env:
