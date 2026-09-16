@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, CheckCircle2, RefreshCw, Eye, EyeOff, Server, Shield } from 'lucide-react';
+import { X, CheckCircle2, RefreshCw, Eye, EyeOff, Server } from 'lucide-react';
 import { AIService, ServiceModel } from '../types';
 import { testAndFetchServiceModels } from '../utils/serviceApi';
 
@@ -15,7 +15,7 @@ interface AddServiceModalProps {
 
 const PRESET_OPTIONS = [
   { id: 'OpenAI', name: 'OpenAI (Official)', url: 'https://api.openai.com/v1', defaultModel: 'gpt-4o' },
-  { id: 'Anthropic', name: 'Anthropic Claude', url: 'https://api.anthropic.com/v1', defaultModel: 'claude-3-5-sonnet' },
+  { id: 'Anthropic', name: 'Anthropic Claude', url: 'https://api.anthropic.com', defaultModel: 'claude-sonnet-4-5' },
   { id: 'DeepSeek', name: 'DeepSeek API', url: 'https://api.deepseek.com/v1', defaultModel: 'deepseek-chat' },
   { id: 'Groq', name: 'Groq Cloud (Fast LPU)', url: 'https://api.groq.com/openai/v1', defaultModel: 'llama-3.3-70b' },
   { id: 'OpenRouter', name: 'OpenRouter Aggregator', url: 'https://openrouter.ai/api/v1', defaultModel: 'auto' },
@@ -58,7 +58,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({ isOpen, onClos
     setTesting(true);
     setTestResult(null);
 
-    const res = await testAndFetchServiceModels(baseUrl, apiKey, corsProxy, proxyToken);
+    const res = await testAndFetchServiceModels(baseUrl, apiKey, corsProxy, proxyToken, selectedPreset);
     setTesting(false);
     setTestResult({
       success: res.success,
@@ -79,7 +79,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({ isOpen, onClos
     // If models haven't been fetched yet, fetch or prepare standard fallback model
     if (modelsToSave.length === 0) {
       if (apiKey.trim()) {
-        const res = await testAndFetchServiceModels(baseUrl, apiKey, corsProxy, proxyToken);
+        const res = await testAndFetchServiceModels(baseUrl, apiKey, corsProxy, proxyToken, selectedPreset);
         if (res.success && res.models.length > 0) {
           modelsToSave = res.models;
           serviceStatus = 'online';
@@ -234,7 +234,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({ isOpen, onClos
               dir="ltr"
             />
             <p className="text-[10px] text-[#64748b]">
-              برای دور زدن محدودیت‌های CORS در ارتباط مستقیم مرورگر به API سرورها.
+              برای دور زدن محدودیت‌های CORS در ارتباط مستقیم مرورگر به API سرورها — برای Anthropic معمولاً لازم است، برای OpenAI معمولاً نیازی نیست.
             </p>
           </div>
 
@@ -274,9 +274,9 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({ isOpen, onClos
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 text-xs font-semibold rounded-xl bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20 transition-all"
+                className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white shadow-lg shadow-blue-500/20 transition-all"
               >
-                ذخیره سرویس
+                <span>ذخیره سرویس</span>
               </button>
             </div>
           </div>

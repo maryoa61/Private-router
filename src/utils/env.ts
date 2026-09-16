@@ -7,14 +7,10 @@
  * NOT keep it secret from anyone who opens the deployed site and reads the
  * bundle or the network tab.
  *
- * Therefore:
- *   - VITE_CORS_PROXY_URL  → fine. The URL is visible in every request anyway.
- *   - VITE_WORKER_PROXY_TOKEN → OPTIONAL and only appropriate for a private /
- *     internal deployment. For a public site, leave it empty and let each user
- *     paste their own token in Settings → Security.
- *
- * The real server-side secret is PROXY_TOKEN inside the Cloudflare Worker,
- * which is a Worker secret and never reaches the browser bundle.
+ * Single mode: every user enters their own API key + base URL in the app
+ * (Add Service) and it is saved locally in this browser's localStorage. There
+ * is no server-side account system — the key never leaves the browser except
+ * to call the AI provider directly (optionally through a CORS proxy Worker).
  */
 
 const raw = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');

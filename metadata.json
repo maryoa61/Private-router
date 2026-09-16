@@ -1,6 +1,6 @@
 {
-  "name": "Combo Router & AI Chat",
-  "description": "Hybrid AI Combo Router Proxy and AI Chat Client with Model Routing, Adapters, and Bilingual Interface",
+  "name": "Private Router",
+  "description": "Browser-only AI chat client with multi-provider combo routing. No backend: every API key stays in the user's localStorage.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": []
 }

@@ -6,10 +6,19 @@ main = "worker.js"
 compatibility_date = "2024-01-01"
 
 [vars]
-# لیست کاماجدا از Originهای مجاز. در CI با --var بازنویسی می‌شود.
+# لیست کاماجدا از Originهای مجاز. الزامی — خالی یعنی ورکر ۵۰۳ می‌دهد.
+# در CI با --var بازنویسی می‌شود، مثلا:
+#   wrangler deploy --var ALLOWED_ORIGINS:"https://private-router.pages.dev"
 ALLOWED_ORIGINS = ""
-# لیست کاماجدا از هاست‌های مقصد مجاز. خالی = همه.
-ALLOW_HOSTS = ""
+
+# لیست کاماجدا از هاست‌های مقصد مجاز. الزامی — خالی یعنی ۵۰۳.
+# پیش‌فرض زیر فقط providerهای شناخته‌شده‌ی خود اپ است؛ اگر سرویس
+# دیگری اضافه می‌کنی، هاستش را اینجا (یا با --var) اضافه کن.
+ALLOW_HOSTS = "api.anthropic.com,api.openai.com,api.deepseek.com,api.groq.com,openrouter.ai,generativelanguage.googleapis.com"
+
+# فقط برای توسعه‌ی محلی (wrangler dev). در production هرگز "true" نشود:
+# اجازه می‌دهد دو متغیر بالا خالی بمانند و http هم مجاز شود.
+DEV_ALLOW_ALL = "false"
 
 # PROXY_TOKEN یک secret است و اینجا نوشته نمی‌شود:
 #   wrangler secret put PROXY_TOKEN

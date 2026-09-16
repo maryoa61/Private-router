@@ -47,7 +47,6 @@ export const defaultSettings: AppSettings = {
   defaultContextLimit: 6,
   defaultCorsProxy: ENV_CORS_PROXY,
   workerSecurityToken: ENV_WORKER_TOKEN,
-  hasKeyLock: false,
   gistToken: '',
   gistId: '',
 };

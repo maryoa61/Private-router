@@ -2,18 +2,13 @@ import React, { useState } from 'react';
 import { 
   Layers, 
   Plus, 
-  Copy, 
-  Check, 
   Trash2, 
-  Edit3, 
   Eye, 
   Volume2, 
   Shuffle, 
   ArrowDownUp, 
   GitCompare, 
-  ShieldCheck, 
   Sparkles,
-  Zap,
   Info
 } from 'lucide-react';
 import { ComboItem, AdapterConfig, RoutingStrategy, AIService } from '../types';
@@ -41,24 +36,10 @@ export const CombosView: React.FC<CombosViewProps> = ({
   onUpdateAdapterStrategy,
   onAddModelToAdapter,
 }) => {
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
-
   // Adapter quick-add state
   const [showAddVision, setShowAddVision] = useState(false);
   const [showAddAudio, setShowAddAudio] = useState(false);
   const [newAdapterModel, setNewAdapterModel] = useState('');
-
-  const copyText = (text: string, type: 'key' | 'url', id: string) => {
-    navigator.clipboard.writeText(text);
-    if (type === 'key') {
-      setCopiedKey(id);
-      setTimeout(() => setCopiedKey(null), 2000);
-    } else {
-      setCopiedUrl(id);
-      setTimeout(() => setCopiedUrl(null), 2000);
-    }
-  };
 
   const getStrategyBadge = (strategy: RoutingStrategy) => {
     switch (strategy) {
@@ -157,49 +138,17 @@ export const CombosView: React.FC<CombosViewProps> = ({
                 </div>
               </div>
 
-              {/* Endpoints & Key Details */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 text-xs">
-                {/* Endpoint URL */}
-                <div className="flex items-center justify-between p-2.5 rounded-xl border border-[#1e293b] bg-[#0c121e]">
-                  <div className="flex flex-col gap-0.5 overflow-hidden">
-                    <span className="text-[10px] text-[#64748b]">Base URL اختصاصی برای Agent/Client:</span>
-                    <span className="font-mono text-[11px] text-blue-400 truncate" dir="ltr">
-                      {combo.customEndpoint}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => copyText(combo.customEndpoint, 'url', combo.id)}
-                    className="p-1.5 rounded-lg border border-[#243147] bg-[#162032] text-[#cbd5e1] hover:text-white transition-colors shrink-0 mr-2"
-                    title="کپی آدرس Endpoint"
-                  >
-                    {copiedUrl === combo.id ? (
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    ) : (
-                      <Copy className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-                </div>
-
-                {/* API Key */}
-                <div className="flex items-center justify-between p-2.5 rounded-xl border border-[#1e293b] bg-[#0c121e]">
-                  <div className="flex flex-col gap-0.5 overflow-hidden">
-                    <span className="text-[10px] text-[#64748b]">API Key اختصاصی این Combo:</span>
-                    <span className="font-mono text-[11px] text-emerald-400 truncate" dir="ltr">
-                      {combo.customKey}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => copyText(combo.customKey, 'key', combo.id)}
-                    className="p-1.5 rounded-lg border border-[#243147] bg-[#162032] text-[#cbd5e1] hover:text-white transition-colors shrink-0 mr-2"
-                    title="کپی API Key اختصاصی"
-                  >
-                    {copiedKey === combo.id ? (
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    ) : (
-                      <Copy className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-                </div>
+              {/* یادداشت: نسخه‌ی قبلی اینجا یک Base URL و API Key
+                  «اختصاصی» با دکمه‌ی کپی نشان می‌داد (router.local/...)
+                  که هیچ سروری آن‌ها را serve نمی‌کرد. چون این اپ بک‌اند
+                  ندارد، Combo فقط داخل خود مرورگر روتینگ می‌کند. */}
+              <div className="flex items-start gap-2 p-2.5 rounded-xl border border-[#1e293b] bg-[#0c121e] text-[11px] text-[#94a3b8]">
+                <Info className="w-3.5 h-3.5 shrink-0 mt-0.5 text-blue-400" />
+                <span>
+                  این Combo فقط داخل همین برنامه کار می‌کند: هنگام ارسال پیام، درخواست طبق
+                  استراتژی انتخاب‌شده بین مدل‌های زیر توزیع می‌شود. Endpoint قابل‌فراخوانی
+                  از بیرون وجود ندارد، چون این اپ بک‌اند ندارد.
+                </span>
               </div>
 
               {/* Models List in this Combo */}

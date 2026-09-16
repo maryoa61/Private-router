@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Shield, Lock } from 'lucide-react';
 import { ENV_ADMIN_TOKEN } from '../utils/env';
+import { markAdminAuthenticated } from '../utils/adminAuth';
 
 interface Props {
   onSuccess: () => void;
@@ -10,19 +11,22 @@ interface Props {
 export const AdminLogin: React.FC<Props> = ({ onSuccess, onCancel }) => {
   const [pwd, setPwd] = useState('');
   const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  const handle = (e: React.FormEvent) => {
+  const handle = async (e: React.FormEvent) => {
     e.preventDefault();
     // Admin token comes from the build environment (VITE_ADMIN_TOKEN), never hardcoded.
     // NOTE: VITE_* values are visible in the public bundle — this gates the UI,
-    // it is not a server-side authorisation boundary.
+    // it is not a server-side authorisation boundary. See utils/adminAuth.ts.
     const expected = ENV_ADMIN_TOKEN;
     if (!expected) {
       setErr('توکن مدیریت تنظیم نشده است. مقدار VITE_ADMIN_TOKEN را در فایل .env قرار دهید.');
       return;
     }
     if (pwd === expected) {
-      localStorage.setItem('admin_auth', '1');
+      setBusy(true);
+      await markAdminAuthenticated(expected);
+      setBusy(false);
       onSuccess();
     } else {
       setErr('رمز مدیر اشتباه است');
@@ -51,7 +55,7 @@ export const AdminLogin: React.FC<Props> = ({ onSuccess, onCancel }) => {
         {err && <span className="text-xs text-red-400">{err}</span>}
         <div className="flex gap-2 justify-end">
           <button type="button" onClick={onCancel} className="px-4 py-2 text-xs text-[#94a3b8] hover:text-white">بازگشت</button>
-          <button type="submit" className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold">ورود</button>
+          <button type="submit" disabled={busy} className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold">ورود</button>
         </div>
       </form>
     </div>

@@ -22,8 +22,6 @@ export interface AIService {
 export interface ComboItem {
   id: string;
   name: string;
-  customEndpoint: string;
-  customKey: string;
   strategy: RoutingStrategy;
   models: {
     serviceId: string;
@@ -51,6 +49,7 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  /** ISO 8601. برای نمایش از utils/time استفاده کن. */
   timestamp: string;
   isCodeFix?: boolean;
   codeAnalysis?: {
@@ -60,8 +59,6 @@ export interface ChatMessage {
     language: string;
     diffSummary: string;
   };
-  hasWebSearch?: boolean;
-  webSources?: { title: string; url: string }[];
   isPending?: boolean;
   isError?: boolean;
 }
@@ -72,6 +69,7 @@ export interface Conversation {
   serviceOrComboId: string;
   targetType: 'service' | 'combo';
   targetName: string;
+  /** ISO 8601. برای نمایش از utils/time استفاده کن. */
   updatedAt: string;
   systemPrompt: string;
   temperature: number;
@@ -95,7 +93,6 @@ export interface AppSettings {
   defaultContextLimit: number;
   defaultCorsProxy: string;
   workerSecurityToken: string;
-  hasKeyLock: boolean;
   gistToken: string;
   gistId: string;
 }

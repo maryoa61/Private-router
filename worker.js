@@ -1,16 +1,22 @@
 /* ============================================================
-   Private Router — Cloudflare Worker (CORS proxy) v3.0
+   Private Router — Cloudflare Worker (CORS proxy) v4.0
    ------------------------------------------------------------
    هیچ مقدار محرمانه‌ای در این فایل هاردکد نشده است.
    همه‌ی تنظیمات از Worker Secrets / Vars خوانده می‌شوند:
 
      PROXY_TOKEN      (secret, الزامی)  توکنی که اپ باید در هدر
                                         X-Proxy-Token بفرستد.
-     ALLOWED_ORIGINS  (var, اختیاری)    لیست کاماجدا از Originهای مجاز،
-                                        مثلا: https://private-router.pages.dev
-                                        خالی = همه (فقط برای تست محلی).
-     ALLOW_HOSTS      (var, اختیاری)    لیست کاماجدا از هاست‌های مقصد مجاز.
-                                        خالی = همه هاست‌ها.
+     ALLOWED_ORIGINS  (var, الزامی)     لیست کاماجدا از Originهای مجاز.
+     ALLOW_HOSTS      (var, الزامی)     لیست کاماجدا از هاست‌های مقصد مجاز.
+     DEV_ALLOW_ALL    (var, اختیاری)    فقط برای توسعه‌ی محلی؛ اگر "true"
+                                        باشد دو مورد بالا می‌توانند خالی
+                                        بمانند. هرگز در production.
+
+   ⚠️ تغییر مهم نسبت به v3: پیش‌فرض‌ها دیگر fail-open نیستند.
+   لیست خالیِ Origin یا Host یعنی «پیکربندی ناقص» و ورکر ۵۰۳
+   برمی‌گرداند، نه «همه مجازند». دلیلش این است که این ورکر هدرهای
+   Authorization و x-api-key را فوروارد می‌کند؛ یک پروکسی باز با
+   این رفتار عملاً یک SSRF قابل سوءاستفاده است.
 
    تنظیم:
      wrangler secret put PROXY_TOKEN
@@ -23,31 +29,134 @@ const splitList = (v) =>
     .map((s) => s.trim())
     .filter(Boolean);
 
+const isDevAllowAll = (env) => String(env.DEV_ALLOW_ALL || '').toLowerCase() === 'true';
+
+/** هدرهایی که اجازه داریم از کلاینت به مقصد بفرستیم. */
+const FORWARD_REQUEST_HEADERS = new Set([
+  'authorization',
+  'content-type',
+  'x-api-key',
+  'anthropic-version',
+  'anthropic-beta',
+  'anthropic-dangerous-direct-browser-access',
+  'openai-organization',
+  'openai-beta',
+  'http-referer',
+  'x-title',
+]);
+
+/** هدرهایی که نباید از پاسخ مقصد به مرورگر برگردند. */
+const STRIP_RESPONSE_HEADERS = new Set([
+  'content-encoding',
+  'content-length',
+  'transfer-encoding',
+  'connection',
+  'keep-alive',
+  'upgrade',
+  'content-security-policy',
+  'content-security-policy-report-only',
+  'set-cookie',
+  'set-cookie2',
+  'strict-transport-security',
+  'public-key-pins',
+]);
+
+/** هدرهای پاسخ که مرورگر اجازه دارد بخواند. */
+const EXPOSE_RESPONSE_HEADERS = [
+  'content-type',
+  'x-request-id',
+  'request-id',
+  'retry-after',
+  'x-ratelimit-limit-requests',
+  'x-ratelimit-remaining-requests',
+  'x-ratelimit-reset-requests',
+  'x-ratelimit-limit-tokens',
+  'x-ratelimit-remaining-tokens',
+  'x-ratelimit-reset-tokens',
+  'anthropic-ratelimit-requests-remaining',
+  'anthropic-ratelimit-tokens-remaining',
+].join(',');
+
 function corsHeaders(request, env) {
   const allowedOrigins = splitList(env.ALLOWED_ORIGINS);
   const origin = request.headers.get('Origin') || '';
-  // اگر لیست خالی است همه مجازند؛ در غیر این صورت فقط Origin ثبت‌شده بازتاب می‌شود.
-  const allowOrigin =
-    allowedOrigins.length === 0 ? '*' : allowedOrigins.includes(origin) ? origin : '';
+  const devMode = isDevAllowAll(env);
 
-  const reqHdrs = request.headers.get('Access-Control-Request-Headers');
+  // fail-closed: لیست خالی در حالت عادی یعنی «هیچ‌کس»، نه «همه».
+  const allowOrigin = devMode
+    ? origin || '*'
+    : allowedOrigins.includes(origin)
+      ? origin
+      : '';
+
   const headers = {
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': reqHdrs || 'Authorization,Content-Type,X-Proxy-Token,x-api-key',
+    'Access-Control-Allow-Headers': [...FORWARD_REQUEST_HEADERS, 'x-proxy-token'].join(','),
+    'Access-Control-Expose-Headers': EXPOSE_RESPONSE_HEADERS,
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
   };
   if (allowOrigin) headers['Access-Control-Allow-Origin'] = allowOrigin;
-  return { headers, allowed: allowedOrigins.length === 0 || Boolean(allowOrigin) };
+  return { headers, allowed: Boolean(allowOrigin) };
 }
 
-/** مقایسه‌ی زمان‌ثابت تا از timing attack روی توکن جلوگیری شود. */
-function safeEqual(a, b) {
+/**
+ * مقایسه‌ی واقعاً زمان‌ثابت: به‌جای مقایسه‌ی مستقیم رشته‌ها (که با
+ * بازگشت زودهنگام روی اختلاف طول، طول توکن را لو می‌داد) هر دو مقدار
+ * SHA-256 می‌شوند و خلاصه‌های هم‌طول بایت‌به‌بایت مقایسه می‌شوند.
+ */
+async function safeEqual(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
-  if (a.length !== b.length) return false;
+  const enc = new TextEncoder();
+  const [da, db] = await Promise.all([
+    crypto.subtle.digest('SHA-256', enc.encode(a)),
+    crypto.subtle.digest('SHA-256', enc.encode(b)),
+  ]);
+  const va = new Uint8Array(da);
+  const vb = new Uint8Array(db);
   let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  for (let i = 0; i < va.length; i++) diff |= va[i] ^ vb[i];
   return diff === 0;
+}
+
+/**
+ * جلوگیری از SSRF به شبکه‌ی داخلی / سرویس metadata، حتی اگر کسی
+ * اشتباهاً چنین هاستی را در ALLOW_HOSTS گذاشته باشد.
+ */
+function isPrivateHost(hostname) {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.internal') || h.endsWith('.local')) {
+    return true;
+  }
+  if (h === '::1' || h === '0.0.0.0' || h.startsWith('fd') || h.startsWith('fe80:')) return true;
+  const v4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 169 && b === 254) return true; // link-local + metadata
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+  }
+  return false;
+}
+
+/**
+ * مقصد را از درخواست بیرون می‌کشد. هر دو قالبی که buildProxyUrl در اپ
+ * می‌سازد پشتیبانی می‌شوند:
+ *   /?url=<encoded>            ← قالب {url}
+ *   /<encoded>                 ← قالب append
+ */
+function extractTarget(reqUrl) {
+  const fromQuery = reqUrl.searchParams.get('url');
+  if (fromQuery) return fromQuery;
+  const path = reqUrl.pathname.replace(/^\/+/, '');
+  if (!path) return '';
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
 }
 
 export default {
@@ -60,27 +169,43 @@ export default {
       });
 
     try {
-      if (request.method === 'OPTIONS') return new Response(null, { headers: CORS });
-
-      if (!originAllowed) {
-        return json({ error: 'origin not allowed' }, 403);
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { status: originAllowed ? 204 : 403, headers: CORS });
       }
+
+      const devMode = isDevAllowAll(env);
+      const allowedOrigins = splitList(env.ALLOWED_ORIGINS);
+      const allowHosts = splitList(env.ALLOW_HOSTS);
+
+      // پیکربندی ناقص = خاموش. نه باز.
+      if (!devMode && allowedOrigins.length === 0) {
+        return json(
+          { error: 'ALLOWED_ORIGINS is not configured on this Worker (deploy with --var ALLOWED_ORIGINS:"https://your-site")' },
+          503
+        );
+      }
+      if (!devMode && allowHosts.length === 0) {
+        return json(
+          { error: 'ALLOW_HOSTS is not configured on this Worker (deploy with --var ALLOW_HOSTS:"api.anthropic.com,api.openai.com")' },
+          503
+        );
+      }
+      if (!originAllowed) return json({ error: 'origin not allowed' }, 403);
 
       const PROXY_TOKEN = env.PROXY_TOKEN;
       if (!PROXY_TOKEN) {
-        // fail closed: بدون secret، ورکر پروکسی باز عمومی نمی‌شود.
         return json(
           { error: 'PROXY_TOKEN is not configured on this Worker (run: wrangler secret put PROXY_TOKEN)' },
           503
         );
       }
-      if (!safeEqual(request.headers.get('X-Proxy-Token') || '', PROXY_TOKEN)) {
+      if (!(await safeEqual(request.headers.get('X-Proxy-Token') || '', PROXY_TOKEN))) {
         return json({ error: 'invalid X-Proxy-Token' }, 401);
       }
 
       const reqUrl = new URL(request.url);
-      const target = reqUrl.searchParams.get('url');
-      if (!target) return json({ error: 'missing ?url=' }, 400);
+      const target = extractTarget(reqUrl);
+      if (!target) return json({ error: 'missing target url (use ?url=<encoded> or /<encoded>)' }, 400);
 
       let t;
       try {
@@ -88,37 +213,30 @@ export default {
       } catch {
         return json({ error: 'bad url' }, 400);
       }
-      if (!/^https?:$/.test(t.protocol)) return json({ error: 'unsupported protocol' }, 400);
-
-      const allowHosts = splitList(env.ALLOW_HOSTS);
+      if (t.protocol !== 'https:' && !(devMode && t.protocol === 'http:')) {
+        return json({ error: 'only https targets are allowed' }, 400);
+      }
+      if (isPrivateHost(t.hostname)) {
+        return json({ error: 'target host is in a private/internal range' }, 403);
+      }
       if (allowHosts.length && !allowHosts.includes(t.hostname)) {
         return json({ error: 'host not allowed: ' + t.hostname }, 403);
       }
 
+      // فقط هدرهای whitelist‌شده فوروارد می‌شوند. X-Proxy-Token عمداً
+      // در لیست نیست تا به provider درز نکند.
       const headers = new Headers();
-      const auth = request.headers.get('Authorization');
-      if (auth) headers.set('Authorization', auth);
-      const ct = request.headers.get('Content-Type');
-      if (ct) headers.set('Content-Type', ct);
+      for (const [k, v] of request.headers.entries()) {
+        if (FORWARD_REQUEST_HEADERS.has(k.toLowerCase())) headers.set(k, v);
+      }
+      headers.set('Accept', request.headers.get('Accept') || 'application/json, text/event-stream, */*');
+      headers.set('Accept-Language', 'en-US,en;q=0.9');
       headers.set(
         'User-Agent',
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
       );
-      headers.set('Accept', 'application/json, text/event-stream, */*');
-      headers.set('Accept-Language', 'en-US,en;q=0.9,fa;q=0.8');
-      headers.set('Referer', t.origin + '/');
-      headers.set('Origin', t.origin);
 
-      const xApiKey = request.headers.get('x-api-key');
-      if (xApiKey) headers.set('x-api-key', xApiKey);
-      // سایر هدرهای سفارشی x-* را فوروارد کن، به جز X-Proxy-Token
-      // که مصرف داخلی دارد و نباید به مقصد درز کند.
-      for (const [k, v] of request.headers.entries()) {
-        const lk = k.toLowerCase();
-        if (lk.startsWith('x-') && lk !== 'x-proxy-token' && !headers.has(k)) headers.set(k, v);
-      }
-
-      const init = { method: request.method, headers, redirect: 'follow' };
+      const init = { method: request.method, headers, redirect: 'manual' };
       if (request.method === 'POST') init.body = await request.arrayBuffer();
 
       let resp;
@@ -126,6 +244,11 @@ export default {
         resp = await fetch(t.toString(), init);
       } catch (e) {
         return json({ error: 'upstream fetch failed: ' + e.message }, 502);
+      }
+
+      // redirect: 'manual' تا ریدایرکت به هاست غیرمجاز، allowlist را دور نزند.
+      if (resp.status >= 300 && resp.status < 400) {
+        return json({ error: 'upstream returned a redirect; refusing to follow it across the host allowlist' }, 502);
       }
 
       const upCt = resp.headers.get('content-type') || '';
@@ -139,16 +262,11 @@ export default {
         );
       }
 
-      const outHeaders = new Headers(resp.headers);
+      const outHeaders = new Headers();
+      for (const [k, v] of resp.headers.entries()) {
+        if (!STRIP_RESPONSE_HEADERS.has(k.toLowerCase())) outHeaders.set(k, v);
+      }
       for (const [k, v] of Object.entries(CORS)) outHeaders.set(k, v);
-      [
-        'content-encoding',
-        'content-length',
-        'transfer-encoding',
-        'connection',
-        'content-security-policy',
-        'content-security-policy-report-only',
-      ].forEach((h) => outHeaders.delete(h));
       return new Response(resp.body, { status: resp.status, headers: outHeaders });
     } catch (e) {
       return json({ error: 'worker error: ' + ((e && e.message) || e) }, 500);

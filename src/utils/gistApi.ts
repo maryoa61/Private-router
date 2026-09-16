@@ -6,13 +6,15 @@
  * read+write Gists permission (fine-grained PAT).
  *
  * Gists are NOT private in the "secret" sense — a secret gist is merely
- * unlisted, and anyone with the URL can read it. So when the AES-GCM lock is
- * enabled we upload the encrypted blob rather than plaintext. When it is off,
- * the caller is warned in the UI before the payload leaves the browser.
+ * unlisted, and anyone with the URL can read it. This build has no vault/
+ * encryption layer, so the payload always goes up as plaintext; the caller
+ * warns about that in the UI before pushing. The `encrypted: true` branch is
+ * kept only so a gist produced by an older, encrypted-vault build of this app
+ * is recognised (and reported as unreadable here) instead of crashing on an
+ * unexpected shape.
  */
 
 import { AIService, AppSettings, ComboItem, Conversation, PromptTemplate } from '../types';
-import { EncryptedBlob } from './crypto';
 
 const GIST_API = 'https://api.github.com';
 const GIST_FILENAME = 'private-router-backup.json';
@@ -28,10 +30,10 @@ export interface SyncPayload {
   promptTemplates: PromptTemplate[];
 }
 
-/** What actually gets written to the gist: either plaintext or an encrypted blob. */
+/** What actually gets written to the gist: always plaintext in this build. */
 export type GistDocument =
   | { encrypted: false; payload: SyncPayload }
-  | { encrypted: true; blob: EncryptedBlob; exportedAt: string };
+  | { encrypted: true; blob: unknown; exportedAt: string };
 
 function headers(token: string): Record<string, string> {
   return {

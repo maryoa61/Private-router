@@ -50,12 +50,12 @@ export const CreateComboModal: React.FC<CreateComboModalProps> = ({
     e.preventDefault();
     if (!name.trim() || selectedModels.length === 0) return;
 
-    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'combo';
+    // قبلاً اینجا یک endpoint و API Key ساختگی تولید می‌شد و در UI
+    // مثل اعتبارنامه‌ی واقعی نمایش داده می‌شد. این اپ بک‌اند ندارد،
+    // پس چنین چیزی وجود خارجی نداشت و فقط گمراه‌کننده بود.
     const newCombo: ComboItem = {
-      id: `combo-${Date.now()}`,
+      id: `combo-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       name: name.trim(),
-      customEndpoint: `https://router.local/v1/combo/${slug}`,
-      customKey: `cr-live-${Math.random().toString(36).substring(2, 12)}`,
       strategy,
       models: selectedModels,
     };

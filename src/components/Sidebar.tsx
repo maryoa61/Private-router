@@ -15,6 +15,7 @@ import {
   Activity
 } from 'lucide-react';
 import { AIService, ComboItem, Conversation } from '../types';
+import { formatRelative } from '../utils/time';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -24,6 +25,13 @@ interface SidebarProps {
   conversations: Conversation[];
   activeConversationId: string;
   activeView: 'chat' | 'combos';
+  /**
+   * Only the admin manages/uses shared Combos. A regular user brought their
+   * own API key for one specific provider and should only ever talk to that
+   * one service — never a multi-provider Combo that could be routed through
+   * someone else's key or fan out into several paid API calls per message.
+   */
+  isAdmin: boolean;
   onSelectConversation: (id: string) => void;
   onNewConversation: (targetId: string, targetType: 'service' | 'combo', targetName: string) => void;
   onSelectView: (view: 'chat' | 'combos') => void;
@@ -40,6 +48,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   conversations,
   activeConversationId,
   activeView,
+  isAdmin,
   onSelectConversation,
   onNewConversation,
   onSelectView,
@@ -131,48 +140,53 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </section>
 
-        {/* 2. Combos Section */}
-        <section className="flex flex-col gap-2">
-          <div className="flex items-center justify-between px-1">
-            <span className="text-xs font-bold text-[#94a3b8] flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Comboها ({combos.length})</span>
-            </span>
-            <button
-              onClick={onOpenCreateCombo}
-              className="text-[11px] font-medium px-2 py-0.5 rounded-lg border border-[#243147] bg-[#162032] text-[#cbd5e1] hover:text-white hover:border-indigo-500/40 transition-colors flex items-center gap-1"
-            >
-              <Plus className="w-3 h-3" />
-              <span>افزودن</span>
-            </button>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            {combos.map((combo) => (
-              <div
-                key={combo.id}
-                onClick={() => {
-                  onSelectView('chat');
-                  onNewConversation(combo.id, 'combo', combo.name);
-                }}
-                className="group flex items-center justify-between p-2 rounded-xl border border-[#1e293b] bg-[#121929] hover:bg-[#19243a] hover:border-indigo-500/30 cursor-pointer transition-all text-xs"
+        {/* 2. Combos Section — admin only. A shared, multi-provider Combo is a
+            routing/cost decision the admin makes for their own testing; a
+            regular user must stay bound to the single service whose key they
+            personally entered above. */}
+        {isAdmin && (
+          <section className="flex flex-col gap-2">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-xs font-bold text-[#94a3b8] flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Comboها ({combos.length})</span>
+              </span>
+              <button
+                onClick={onOpenCreateCombo}
+                className="text-[11px] font-medium px-2 py-0.5 rounded-lg border border-[#243147] bg-[#162032] text-[#cbd5e1] hover:text-white hover:border-indigo-500/40 transition-colors flex items-center gap-1"
               >
-                <div className="flex items-center gap-2 overflow-hidden">
-                  <div className="w-2 h-2 rounded-full bg-indigo-400 shrink-0"></div>
-                  <div className="flex flex-col overflow-hidden">
-                    <span className="font-semibold text-white truncate">{combo.name}</span>
-                    <span className="text-[10px] text-[#64748b] truncate capitalize">
-                      استراتژی: {combo.strategy} • {combo.models.length} مدل
-                    </span>
+                <Plus className="w-3 h-3" />
+                <span>افزودن</span>
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              {combos.map((combo) => (
+                <div
+                  key={combo.id}
+                  onClick={() => {
+                    onSelectView('chat');
+                    onNewConversation(combo.id, 'combo', combo.name);
+                  }}
+                  className="group flex items-center justify-between p-2 rounded-xl border border-[#1e293b] bg-[#121929] hover:bg-[#19243a] hover:border-indigo-500/30 cursor-pointer transition-all text-xs"
+                >
+                  <div className="flex items-center gap-2 overflow-hidden">
+                    <div className="w-2 h-2 rounded-full bg-indigo-400 shrink-0"></div>
+                    <div className="flex flex-col overflow-hidden">
+                      <span className="font-semibold text-white truncate">{combo.name}</span>
+                      <span className="text-[10px] text-[#64748b] truncate capitalize">
+                        استراتژی: {combo.strategy} • {combo.models.length} مدل
+                      </span>
+                    </div>
                   </div>
+                  <span className="text-[10px] text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                    چت ◄
+                  </span>
                 </div>
-                <span className="text-[10px] text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                  چت ◄
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* 3. Conversations Section */}
         <section className="flex flex-col gap-2">
@@ -185,13 +199,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onClick={() => {
                 const first = services[0]
                   ? { id: services[0].id, type: 'service' as const, name: services[0].name }
-                  : combos[0]
+                  : isAdmin && combos[0]
                   ? { id: combos[0].id, type: 'combo' as const, name: combos[0].name }
                   : null;
                 if (first) onNewConversation(first.id, first.type, first.name);
               }}
-              disabled={services.length === 0 && combos.length === 0}
-              title={services.length === 0 && combos.length === 0 ? 'ابتدا یک سرویس یا Combo اضافه کنید' : 'گفتگوی جدید با اولین سرویس/Combo موجود'}
+              disabled={services.length === 0 && (!isAdmin || combos.length === 0)}
+              title={
+                services.length === 0 && (!isAdmin || combos.length === 0)
+                  ? 'ابتدا سرویس خودتان را با کلید API خودتان اضافه کنید'
+                  : 'گفتگوی جدید با اولین سرویس موجود'
+              }
               className="text-[11px] font-medium px-2 py-0.5 rounded-lg border border-[#243147] bg-[#162032] text-[#cbd5e1] hover:text-white transition-colors flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Plus className="w-3 h-3" />
@@ -231,7 +249,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 >
                   <div className="flex flex-col gap-0.5 overflow-hidden pr-1">
                     <span className="font-semibold truncate text-[11px]">{conv.title}</span>
-                    <span className="text-[10px] text-[#64748b] truncate">{conv.targetName} • {conv.updatedAt}</span>
+                    <span className="text-[10px] text-[#64748b] truncate">{conv.targetName} • {formatRelative(conv.updatedAt)}</span>
                   </div>
 
                   <button

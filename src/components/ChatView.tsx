@@ -1,30 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   Send, 
-  Paperclip, 
-  Mic, 
-  Globe, 
   Sliders, 
   BookmarkPlus, 
   Copy, 
   Check, 
   Volume2, 
   Sparkles, 
-  Code2, 
   ChevronDown, 
   ChevronUp, 
-  CheckCircle2, 
   FileCode,
   Bot,
-  User,
-  ExternalLink
+  User
 } from 'lucide-react';
 import { Conversation, PromptTemplate } from '../types';
+import { formatClock } from '../utils/time';
 
 interface ChatViewProps {
   conversation: Conversation;
   promptTemplates: PromptTemplate[];
-  onSendMessage: (text: string, withWebSearch: boolean) => void;
+  /** از تنظیمات برنامه می‌آید؛ قبلاً این گزینه هیچ اثری نداشت. */
+  ttsEnabled: boolean;
+  onSendMessage: (text: string) => void;
   onSavePromptToLibrary: (title: string, content: string) => void;
   onUpdateConversationSettings: (settings: {
     systemPrompt: string;
@@ -38,12 +35,12 @@ interface ChatViewProps {
 export const ChatView: React.FC<ChatViewProps> = ({
   conversation,
   promptTemplates,
+  ttsEnabled,
   onSendMessage,
   onSavePromptToLibrary,
   onUpdateConversationSettings,
 }) => {
   const [inputText, setInputText] = useState('');
-  const [webSearchActive, setWebSearchActive] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [playingTTS, setPlayingTTS] = useState<string | null>(null);
@@ -51,11 +48,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   // Local state for system parameters drawer
   const [sysPrompt, setSysPrompt] = useState(conversation.systemPrompt || '');
-  const [temperature, setTemperature] = useState(conversation.temperature || 0.7);
-  const [topP, setTopP] = useState(conversation.topP || 0.95);
+  // ?? به‌جای ||  — چون 0 برای temperature/topP/contextLimit مقدار معتبری
+  // است و با || بی‌سروصدا با پیش‌فرض جایگزین می‌شد.
+  const [temperature, setTemperature] = useState(conversation.temperature ?? 0.7);
+  const [topP, setTopP] = useState(conversation.topP ?? 0.95);
   const [maxTokens, setMaxTokens] = useState(conversation.maxTokens || 4096);
-  const [contextLimit, setContextLimit] = useState(conversation.contextLimit || 8);
+  const [contextLimit, setContextLimit] = useState(conversation.contextLimit ?? 8);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
+
+  // اسکرول خودکار به آخرین پیام (قبلاً وجود نداشت و کاربر باید دستی
+  // پایین می‌رفت تا پاسخ را ببیند).
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [conversation.messages.length, conversation.messages[conversation.messages.length - 1]?.content]);
+
+  const isAwaitingReply = conversation.messages.some((m) => m.isPending);
 
   const handleApplyTemplate = (id: string) => {
     setSelectedTemplateId(id);
@@ -86,9 +94,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim()) return;
-    onSendMessage(inputText, webSearchActive);
+    if (!inputText.trim() || isAwaitingReply) return;
+    onSendMessage(inputText);
     setInputText('');
+  };
+
+  // Enter = ارسال، Shift+Enter = خط جدید.
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend(e as unknown as React.FormEvent);
+    }
   };
 
   const copyContent = (text: string, id: string) => {
@@ -97,18 +113,25 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setTimeout(() => setCopiedMsgId(null), 2000);
   };
 
-  const simulateTTS = (id: string, text: string) => {
-    setPlayingTTS(id);
-    if ('speechSynthesis' in window) {
+  const speak = (id: string, text: string) => {
+    if (!('speechSynthesis' in window)) return;
+    // کلیک دوم روی همان پیام = توقف پخش.
+    if (playingTTS === id) {
       window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text.substring(0, 150));
-      utterance.onend = () => setPlayingTTS(null);
-      utterance.onerror = () => setPlayingTTS(null);
-      window.speechSynthesis.speak(utterance);
-    } else {
-      setTimeout(() => setPlayingTTS(null), 3000);
+      setPlayingTTS(null);
+      return;
     }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'fa-IR';
+    utterance.onend = () => setPlayingTTS(null);
+    utterance.onerror = () => setPlayingTTS(null);
+    setPlayingTTS(id);
+    window.speechSynthesis.speak(utterance);
   };
+
+  // اگر کاربر وسط پخش، گفتگو را عوض کند صدا نباید ادامه پیدا کند.
+  useEffect(() => () => window.speechSynthesis?.cancel(), []);
 
   return (
     <div className="flex-1 flex flex-col bg-[#0b0f19] overflow-hidden text-[#e2e8f0]" dir="rtl">
@@ -322,30 +345,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   <div className="whitespace-pre-wrap">{msg.content}</div>
                 )}
 
-                {/* Live Web Sources Indicator if present */}
-                {msg.webSources && msg.webSources.length > 0 && (
-                  <div className="mt-2 pt-2 border-t border-[#1e293b] flex flex-col gap-1.5">
-                    <span className="text-[10px] font-semibold text-emerald-400 flex items-center gap-1">
-                      <Globe className="w-3 h-3" />
-                      منابع جستجوی زنده وب:
-                    </span>
-                    <div className="flex flex-wrap gap-2">
-                      {msg.webSources.map((source, sIdx) => (
-                        <a
-                          key={sIdx}
-                          href={source.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20"
-                        >
-                          <span>{source.title}</span>
-                          <ExternalLink className="w-2.5 h-2.5" />
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
                 {/* Code Error Detection Assistant Block (Item 5) */}
                 {msg.isCodeFix && msg.codeAnalysis && (
                   <div className="mt-3 flex flex-col gap-3 pt-3 border-t border-[#1e293b]">
@@ -401,11 +400,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 {/* Footer bar for assistant message: Timestamp, TTS, Copy */}
                 {!isUser && (
                   <div className="flex items-center justify-between pt-2 mt-1 border-t border-[#1e293b]/70 text-[10px] text-[#64748b]">
-                    <span>{msg.timestamp}</span>
+                    <span>{formatClock(msg.timestamp)}</span>
                     <div className="flex items-center gap-2">
-                      {/* TTS Button */}
+                      {/* TTS Button — فقط وقتی در تنظیمات فعال باشد */}
+                      {ttsEnabled && (
                       <button
-                        onClick={() => simulateTTS(msg.id, msg.content)}
+                        onClick={() => speak(msg.id, msg.content)}
                         className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors ${
                           playingTTS === msg.id
                             ? 'text-emerald-400 bg-emerald-500/10'
@@ -414,8 +414,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         title="خواندن پاسخ با صدا (TTS)"
                       >
                         <Volume2 className="w-3.5 h-3.5" />
-                        <span>{playingTTS === msg.id ? 'در حال پخش...' : 'صدا'}</span>
+                        <span>{playingTTS === msg.id ? 'توقف پخش' : 'صدا'}</span>
                       </button>
+                      )}
 
                       {/* Copy message button */}
                       <button
@@ -437,71 +438,40 @@ export const ChatView: React.FC<ChatViewProps> = ({
             </div>
           );
         })}
+        <div ref={messagesEndRef} />
       </div>
 
       {/* 4. Bottom Input Bar Area */}
       <div className="p-4 border-t border-[#1e293b] bg-[#0e1422] shrink-0 flex flex-col gap-2">
-        {/* Web Search Live Toggle Bar (Item 6) */}
-        <div className="max-w-3xl w-full mx-auto flex items-center justify-between px-2">
-          <button
-            type="button"
-            onClick={() => setWebSearchActive(!webSearchActive)}
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
-              webSearchActive
-                ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 shadow-sm'
-                : 'bg-[#141c2c] border border-[#243147] text-[#94a3b8] hover:text-white'
-            }`}
-          >
-            <Globe className={`w-3.5 h-3.5 ${webSearchActive ? 'text-emerald-400 animate-pulse' : ''}`} />
-            <span>جستجوی وب زنده (Live Web Search):</span>
-            <span className="font-bold">{webSearchActive ? 'فعال' : 'غیرفعال'}</span>
-          </button>
-
+        <div className="max-w-3xl w-full mx-auto flex items-center justify-end px-2">
           <span className="text-[10px] text-[#64748b]">
-            نکته: برای بررسی خطای کد، متن خطا یا کد معیوب را اینجا پیست کنید.
+            نکته: برای بررسی خطای کد، متن خطا یا کد معیوب را اینجا پیست کنید. Enter برای ارسال، Shift+Enter برای خط جدید.
           </span>
         </div>
 
         {/* Input Bar Form */}
         <form
           onSubmit={handleSend}
-          className="max-w-3xl w-full mx-auto flex items-center gap-2 rounded-2xl border border-[#243147] bg-[#131a29] px-3 py-2 shadow-lg focus-within:border-blue-500 transition-colors"
+          className="max-w-3xl w-full mx-auto flex items-end gap-2 rounded-2xl border border-[#243147] bg-[#131a29] px-3 py-2 shadow-lg focus-within:border-blue-500 transition-colors"
         >
-          {/* File Attachment */}
-          <label
-            className="w-8 h-8 rounded-xl border border-[#243147] bg-[#162032] flex items-center justify-center text-[#94a3b8] hover:text-white cursor-pointer shrink-0 transition-colors"
-            title="پیوست عکس یا فایل"
-          >
-            <Paperclip className="w-4 h-4" />
-            <input type="file" className="hidden" />
-          </label>
-
-          {/* Text Input */}
-          <input
-            type="text"
+          <textarea
+            rows={1}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={isAwaitingReply}
             placeholder={
-              webSearchActive
-                ? 'سوال با جستجوی زنده وب، یا کد برای عیب‌یابی...'
+              isAwaitingReply
+                ? 'در انتظار پاسخ مدل...'
                 : 'پیام خود را بنویسید یا خطای کد را برای دیباگ پیست کنید...'
             }
-            className="flex-1 bg-transparent text-xs text-[#e2e8f0] placeholder-[#475569] outline-none"
+            className="flex-1 bg-transparent text-xs text-[#e2e8f0] placeholder-[#475569] outline-none resize-none max-h-40 py-1.5 disabled:opacity-50"
           />
-
-          {/* Mic Button */}
-          <button
-            type="button"
-            className="w-8 h-8 rounded-xl border border-[#243147] bg-[#162032] flex items-center justify-center text-[#94a3b8] hover:text-white shrink-0 transition-colors"
-            title="ورودی صوتی"
-          >
-            <Mic className="w-4 h-4" />
-          </button>
 
           {/* Send Button */}
           <button
             type="submit"
-            disabled={!inputText.trim()}
+            disabled={!inputText.trim() || isAwaitingReply}
             className="w-8 h-8 rounded-xl bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center shrink-0 transition-all shadow-md shadow-blue-500/20 disabled:opacity-40 disabled:hover:bg-blue-600"
             title="ارسال پیام"
           >
